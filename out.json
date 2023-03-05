@@ -1,0 +1,42 @@
+{
+    "sections": [
+        {
+            "name": "editor",
+            "pairs": [
+                {
+                    "key": "username",
+                    "value": {
+                        "kind": "String",
+                        "strVal": "Isaac"
+                    }
+                },
+                {
+                    "key": "age",
+                    "value": {
+                        "kind": "Int",
+                        "intVal": 20
+                    }
+                },
+                {
+                    "key": "isCool",
+                    "value": {
+                        "kind": "Bool",
+                        "boolVal": true
+                    }
+                }
+            ]
+        },
+        {
+            "name": "editor.defaults",
+            "pairs": [
+                {
+                    "key": "cheese",
+                    "value": {
+                        "kind": "String",
+                        "strVal": "Hello"
+                    }
+                }
+            ]
+        }
+    ]
+}

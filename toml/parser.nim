@@ -1,162 +1,148 @@
+# TODO: Remove all Unwraps
 import strutils
 import strformat
 import sugar
-
 import token
+import options
 import result
-
-#[
-  Toml(
-    Section(
-      Name(string),
-      Pair(key, value),
-      Pair(key, value),
-    ),
-    Section(
-      Name(string),
-      Pair(key, value),
-      Subsection(
-        Name(),
-        Pair(key, value)
-      )
-    )
-  )
-]#
 
 type
   TomlValueKind = enum
     String, Int, Bool
-  
+
   TomlValue = ref object
     case kind: TomlValueKind:
     of String: strVal: string
     of Int: intVal: int
     of Bool: boolVal: bool
-
+  
   TomlPair = ref object
     key: string
     value: TomlValue
-
+  
   TomlSection = ref object
     name: string
     pairs: seq[TomlPair]
-    subsections: seq[TomlSection]
-
+  
   Toml = ref object
     sections: seq[TomlSection]
 
-  TomlParser* = ref object
-    toml: Toml
+  TomlParser = ref object
     tokens: seq[Token]
     idx: int
 
-func `$`*(value: TomlValue): string =
-  case value.kind:
-  of String: &"Value(kind: String, value: {value.strVal})"
-  of Int: &"Value(kind: Int, value: {value.intVal})"
-  of Bool: &"Value(kind: Bool, value: {value.boolVal})"
-
-func `$`*(pair: TomlPair): string =
-  &"Pair(key: {pair.key}, value: {pair.value})"
-
-func `$`*(sec: TomlSection): string =
-  &"Section(name: {sec.name}, pairs: {sec.pairs}, subsections: {sec.subsections})"
-
-func `$`*(toml: Toml): string =
-  &"Toml(sections: {toml.sections})"
-
-
-func newTomlParser*(src: string): TomlParser =
+proc newTomlParser*(src: string): TomlParser =
   let tokens = collect:
-    for tkn in tokenise(src): tkn
-    
-  TomlParser(tokens: tokens, idx: 0)
-
-proc expect(parser: TomlParser, tk: TokenKind): Result[bool] =
-  ## Check that the current token is of kind `tk`
-  ## Advance the parser to the next token
-  ## If the token is not the right kind, returns an err
-  let token = parser.tokens[parser.idx]
-  if token.kind == tk:
-    parser.idx += 1
-    return ok(true)
+    for token in tokenise(src):
+      token
   
-  return err[bool](&"Expected {tk}, but found {token.kind}")
+  return TomlParser(tokens: tokens, idx: 0)
 
-proc expectAndCollect(parser: TomlParser, tk: TokenKind): Result[Token] =
-  ## Check that the current token is of kind `tk`
-  ## Advance the parser to the next token
-  ## If the token is not the right kind, returns an err
-  let token = parser.tokens[parser.idx]
-  if token.kind == tk:
+proc current(parser: TomlParser): Token =
+  return parser.tokens[parser.idx]
+
+proc expect(parser: TomlParser, tokenKind: TokenKind): Result[bool] =
+  ## A result is not exactly the ideal type here
+  ## There isn't really anything that needs returning from this function
+  ## We purely need to know if it has failed or not.
+  let token = parser.current()
+  if token.kind != tokenKind:
+    return err[bool](fmt"Expected {tokenKind}, but found {token.kind}")
+
+  # Increment the token
+  parser.idx += 1
+  return ok(true)
+
+proc expectAndCollect(parser: TomlParser, tokenKind: TokenKind): Result[Token] =
+  ## This does the same as expect, except it will collect the token and return it too
+  let token = parser.current()
+  if token.kind != tokenKind:
+    return err[Token](fmt"ERROR: toml/parser.nim {token.line}:{token.col} Expected {tokenKind}, but found {token.kind}")
+  
+  parser.idx += 1
+  return ok(token)
+
+proc skipWhitespace(parser: TomlParser) =
+  while parser.tokens[parser.idx].kind == Newline:
     parser.idx += 1
-    return ok(token)
-
-  return err[Token](&"Expect {tk}, but found {token.kind}")
-
-proc current(parser: TomlParser): Result[Token] =
-  return ok(parser.tokens[parser.idx])
 
 proc parseString(parser: TomlParser): Result[TomlValue] =
-  discard parser.expect(Quote).unwrap()
-  let value = parser.expectAndCollect(Ident).unwrap()
-  discard parser.expect(Quote).unwrap()
+  parser.skipWhitespace()
+  discard parser.expect(Quote)
+  let ident = parser.expectAndCollect(Ident).unwrap()
+  discard parser.expect(Quote)
 
-  return ok(TomlValue(kind: String, strVal: value.value))
+  return ok(TomlValue(kind: String, strVal: ident.value))
 
 proc parseIntOrBool(parser: TomlParser): Result[TomlValue] =
-  let value = parser.expectAndCollect(Ident).unwrap()
+  parser.skipWhitespace()
 
-  if value.value == "true":
+  let ident = parser.expectAndCollect(Ident).unwrap()
+  
+  if ident.value == "true":
     return ok(TomlValue(kind: Bool, boolVal: true))
-  elif value.value == "false":
+  elif ident.value == "false":
     return ok(TomlValue(kind: Bool, boolVal: false))
 
-  return ok(TomlValue(kind: Int, intVal: parseInt(value.value)))
+  return ok(TomlValue(kind: Int, intVal: parseInt(ident.value)))
 
-proc parsePair(parser: TomlParser): Result[TomlPair] =
-  echo "Parsing Pair"
-  # Expecting to start on a newline
-  discard parser.expect(Newline).unwrap()
-
-  # Key will always be an identifier
+proc parsePair(parser: TomlParser): Result[Option[TomlPair]] =
+  parser.skipWhitespace()
+  if parser.current().kind != Ident:
+    return ok(none(TomlPair))
+  
   let key = parser.expectAndCollect(Ident).unwrap()
   
-  # Has to be an assignment
   discard parser.expect(Eq).unwrap()
 
-  let next = parser.current().unwrap()
-  echo next
-
   var value: TomlValue
-  if next.kind == Quote:
+  if parser.current().kind == Quote:
     value = parser.parseString().unwrap()
   else:
     value = parser.parseIntOrBool().unwrap()
-  
-  return ok(TomlPair(key: key.value, value: value))
 
-proc parseSection(parser: TomlParser): Result[TomlSection] =
-  echo "Parsing Section"
-  var section = new TomlSection
+  return ok(some(TomlPair(key: key.value, value: value)))
+
+proc parseSection(parser: TomlParser): Result[Option[TomlSection]] =
+  parser.skipWhitespace()
+
+  if parser.current().kind != LeftSqBracket:
+    # If we aren't starting on a LeftSqBracket
+    # We are not parsing a section.
+    # Not an error, just to exit with none
+    return ok(none(TomlSection))
 
   discard parser.expect(LeftSqBracket).unwrap()
-  let ident = parser.expectAndCollect(Ident).unwrap()
+  let name = parser.expectAndCollect(Ident).unwrap()
   discard parser.expect(RightSqBracket).unwrap()
+  
+  var pairs = newSeq[TomlPair]()
 
-  section.name = ident.value
+  while true:
+    let pair = parser.parsePair()
+    if isErr pair:
+      return err[Option[TomlSection]](pair.msg()) 
+    
+    if isNone pair.value():
+      break
+    
+    pairs.add(pair.value().get)
 
-  var parsingPairs = true
-
-  while parsingPairs:
-    let pair = parser.parsePair().unwrap()
-    section.pairs.add(pair)
+  return ok(some(TomlSection(name: name.value, pairs: pairs)))
 
 proc parse*(parser: TomlParser): Result[Toml] =
   var toml = new Toml
-
-  while parser.idx < len(parser.tokens):
-    let section = parser.parseSection().unwrap()
-    toml.sections.add(section)
   
-  echo toml
+  # While we are not at the end of the file
+  while parser.tokens[parser.idx].kind != Eof:
+    let section = parser.parseSection()
+    if isErr section:
+      return err[Toml](section.msg())
+    
+    if isNone section.value():
+      parser.idx += 1
+      continue
+  
+    toml.sections.add(section.value().get())
+  
+  return ok(toml)
