@@ -94,12 +94,8 @@ proc expectAndCollect(parser: TomlParser, tk: TokenKind): Result[Token] =
 
   return err[Token](&"Expect {tk}, but found {token.kind}")
 
-proc next(parser: TomlParser): Result[Token] =
-  ## This can fail if the next token is past EOF.
-  if parser.tokens[parser.idx].kind == Eof:
-    return err[Token]("Unexpected EOF")
-
-  return ok(parser.tokens[parser.idx + 1])
+proc current(parser: TomlParser): Result[Token] =
+  return ok(parser.tokens[parser.idx])
 
 proc parseString(parser: TomlParser): Result[TomlValue] =
   discard parser.expect(Quote).unwrap()
@@ -119,6 +115,7 @@ proc parseIntOrBool(parser: TomlParser): Result[TomlValue] =
   return ok(TomlValue(kind: Int, intVal: parseInt(value.value)))
 
 proc parsePair(parser: TomlParser): Result[TomlPair] =
+  echo "Parsing Pair"
   # Expecting to start on a newline
   discard parser.expect(Newline).unwrap()
 
@@ -128,7 +125,8 @@ proc parsePair(parser: TomlParser): Result[TomlPair] =
   # Has to be an assignment
   discard parser.expect(Eq).unwrap()
 
-  let next = parser.next().unwrap()
+  let next = parser.current().unwrap()
+  echo next
 
   var value: TomlValue
   if next.kind == Quote:
@@ -139,6 +137,7 @@ proc parsePair(parser: TomlParser): Result[TomlPair] =
   return ok(TomlPair(key: key.value, value: value))
 
 proc parseSection(parser: TomlParser): Result[TomlSection] =
+  echo "Parsing Section"
   var section = new TomlSection
 
   discard parser.expect(LeftSqBracket).unwrap()
