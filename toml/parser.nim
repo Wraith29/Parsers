@@ -1,3 +1,4 @@
+import strutils
 import strformat
 import sugar
 
@@ -32,12 +33,6 @@ type
     of Int: intVal: int
     of Bool: boolVal: bool
 
-proc parseTomlValue(value: string): TomlValue =
-  echo value
-
-  TomlValue(kind: String, strVal: "hi")
-
-type
   TomlPair = ref object
     key: string
     value: TomlValue
@@ -54,6 +49,22 @@ type
     toml: Toml
     tokens: seq[Token]
     idx: int
+
+func `$`*(value: TomlValue): string =
+  case value.kind:
+  of String: &"Value(kind: String, value: {value.strVal})"
+  of Int: &"Value(kind: Int, value: {value.intVal})"
+  of Bool: &"Value(kind: Bool, value: {value.boolVal})"
+
+func `$`*(pair: TomlPair): string =
+  &"Pair(key: {pair.key}, value: {pair.value})"
+
+func `$`*(sec: TomlSection): string =
+  &"Section(name: {sec.name}, pairs: {sec.pairs}, subsections: {sec.subsections})"
+
+func `$`*(toml: Toml): string =
+  &"Toml(sections: {toml.sections})"
+
 
 func newTomlParser*(src: string): TomlParser =
   let tokens = collect:
@@ -83,6 +94,50 @@ proc expectAndCollect(parser: TomlParser, tk: TokenKind): Result[Token] =
 
   return err[Token](&"Expect {tk}, but found {token.kind}")
 
+proc next(parser: TomlParser): Result[Token] =
+  ## This can fail if the next token is past EOF.
+  if parser.tokens[parser.idx].kind == Eof:
+    return err[Token]("Unexpected EOF")
+
+  return ok(parser.tokens[parser.idx + 1])
+
+proc parseString(parser: TomlParser): Result[TomlValue] =
+  discard parser.expect(Quote).unwrap()
+  let value = parser.expectAndCollect(Ident).unwrap()
+  discard parser.expect(Quote).unwrap()
+
+  return ok(TomlValue(kind: String, strVal: value.value))
+
+proc parseIntOrBool(parser: TomlParser): Result[TomlValue] =
+  let value = parser.expectAndCollect(Ident).unwrap()
+
+  if value.value == "true":
+    return ok(TomlValue(kind: Bool, boolVal: true))
+  elif value.value == "false":
+    return ok(TomlValue(kind: Bool, boolVal: false))
+
+  return ok(TomlValue(kind: Int, intVal: parseInt(value.value)))
+
+proc parsePair(parser: TomlParser): Result[TomlPair] =
+  # Expecting to start on a newline
+  discard parser.expect(Newline).unwrap()
+
+  # Key will always be an identifier
+  let key = parser.expectAndCollect(Ident).unwrap()
+  
+  # Has to be an assignment
+  discard parser.expect(Eq).unwrap()
+
+  let next = parser.next().unwrap()
+
+  var value: TomlValue
+  if next.kind == Quote:
+    value = parser.parseString().unwrap()
+  else:
+    value = parser.parseIntOrBool().unwrap()
+  
+  return ok(TomlPair(key: key.value, value: value))
+
 proc parseSection(parser: TomlParser): Result[TomlSection] =
   var section = new TomlSection
 
@@ -95,31 +150,14 @@ proc parseSection(parser: TomlParser): Result[TomlSection] =
   var parsingPairs = true
 
   while parsingPairs:
-    var pair = new TomlPair
-    discard parser.expect(Newline).unwrap()
-    let key = parser.expectAndCollect(Ident).unwrap()
-    discard parser.expect(Eq).unwrap()
-    let value = parser.expectAndCollect(Ident).unwrap()
-    pair.key = key.value
-    pair.value = parseTomlValue(value.value)
+    let pair = parser.parsePair().unwrap()
+    section.pairs.add(pair)
 
 proc parse*(parser: TomlParser): Result[Toml] =
   var toml = new Toml
 
   while parser.idx < len(parser.tokens):
     let section = parser.parseSection().unwrap()
-
-func `$`*(value: TomlValue): string =
-  case value.kind:
-  of String: &"Value(kind: String, value: {value.strVal})"
-  of Int: &"Value(kind: Int, value: {value.intVal})"
-  of Bool: &"Value(kind: Bool, value: {value.boolVal})"
-
-func `$`*(pair: TomlPair): string =
-  &"Pair(key: {pair.key}, value: {pair.value})"
-
-func `$`*(sec: TomlSection): string =
-  &"Section(name: {sec.name}, pairs: {sec.pairs}, subsections: {sec.subsections})"
-
-func `$`*(toml: Toml): string =
-  &"Toml(sections: {toml.sections})"
+    toml.sections.add(section)
+  
+  echo toml
