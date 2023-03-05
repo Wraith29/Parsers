@@ -1,39 +1,34 @@
 {
     "sections": [
         {
-            "name": "editor",
+            "name": "window",
             "pairs": [
                 {
-                    "key": "username",
+                    "key": "title",
                     "value": {
                         "kind": "String",
-                        "strVal": "Isaac"
+                        "strVal": "My Game"
                     }
                 },
                 {
-                    "key": "age",
+                    "key": "width",
                     "value": {
                         "kind": "Int",
-                        "intVal": 20
+                        "intVal": 1600
                     }
                 },
                 {
-                    "key": "isCool",
+                    "key": "height",
+                    "value": {
+                        "kind": "Int",
+                        "intVal": 900
+                    }
+                },
+                {
+                    "key": "fullscreen",
                     "value": {
                         "kind": "Bool",
-                        "boolVal": true
-                    }
-                }
-            ]
-        },
-        {
-            "name": "editor.defaults",
-            "pairs": [
-                {
-                    "key": "cheese",
-                    "value": {
-                        "kind": "String",
-                        "strVal": "Hello"
+                        "boolVal": false
                     }
                 }
             ]
